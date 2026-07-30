@@ -26,9 +26,18 @@ else
     echo "WARNING: no cached speech model at $MODEL_CACHE — app will download on first run" >&2
 fi
 
-# Sign with CODESIGN_ID if set (a stable identity keeps TCC grants like
-# Accessibility valid across rebuilds). Ad-hoc otherwise: works, but every
-# rebuild invalidates the Accessibility grant and it must be re-toggled.
-codesign --force --deep --sign "${CODESIGN_ID:--}" "$APP"
+# Sign with a stable identity so TCC grants (Accessibility) survive rebuilds.
+# Preference: $CODESIGN_ID → local "Dicta Dev Signing" cert → ad-hoc (which
+# invalidates the Accessibility grant on every rebuild).
+IDENTITY="${CODESIGN_ID:-}"
+if [ -z "$IDENTITY" ]; then
+    if security find-identity -v -p codesigning | grep -q "Dicta Dev Signing"; then
+        IDENTITY="Dicta Dev Signing"
+    else
+        IDENTITY="-"
+    fi
+fi
+codesign --force --deep --sign "$IDENTITY" "$APP"
+echo "Signed with: $IDENTITY"
 
 echo "Built $APP"
