@@ -14,6 +14,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp .build/release/Dicta "$APP/Contents/MacOS/Dicta"
 cp scripts/Info.plist "$APP/Contents/Info.plist"
+cp LICENSE THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+cp -R ThirdPartyLicenses "$APP/Contents/Resources/"
 
 # Bundle the speech model so the app never needs the network. The build
 # machine must have run Dicta (or a selftest) once to populate the cache.

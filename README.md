@@ -8,6 +8,26 @@ cursor is. Everything runs on-device (NVIDIA Parakeet TDT v3 on the Apple
 Neural Engine, via [FluidAudio](https://github.com/FluidInference/FluidAudio)).
 No cloud, no accounts, no analytics. Audio is never written to disk.
 
+## Requirements
+
+- Apple Silicon Mac
+- macOS 14 or newer
+- Xcode 26 / Swift 6 to build from source
+
+## Install from source
+
+```sh
+git clone https://github.com/hrayn3/dicta.git
+cd dicta
+./scripts/make-app.sh
+open dist/Dicta.app
+```
+
+Move `dist/Dicta.app` to `/Applications` if you want to keep it installed.
+The speech model downloads on first launch. If FluidAudio has already cached
+the model on the build Mac, the build script bundles it into the app for a
+fully offline first launch.
+
 ## Use
 
 - **Tap ⌃⌥Space** (configurable) to start recording; the menu bar icon becomes
@@ -47,6 +67,12 @@ Case-insensitive, whole-word, applied after transcription and before pasting.
 Requires Xcode 26 / Swift 6 and an Apple Silicon Mac (macOS 14+). The bundle
 is ad-hoc signed: on a Mac other than the build machine, first launch is
 right-click → Open.
+
+## License
+
+Dicta is available under the [MIT License](LICENSE). See
+[Third-party notices](THIRD_PARTY_NOTICES.md) for FluidAudio,
+KeyboardShortcuts, and NVIDIA Parakeet licensing and attribution.
 
 ## Permissions
 
