@@ -8,25 +8,28 @@ cursor is. Everything runs on-device (NVIDIA Parakeet TDT v3 on the Apple
 Neural Engine, via [FluidAudio](https://github.com/FluidInference/FluidAudio)).
 No cloud, no accounts, no analytics. Audio is never written to disk.
 
-## Requirements
+## Install
 
-- Apple Silicon Mac
-- macOS 14 or newer
-- Xcode 26 / Swift 6 to build from source
-
-## Install from source
+Needs an Apple Silicon Mac on macOS 14+ with the full Xcode app installed
+(tested with Xcode 26).
 
 ```sh
 git clone https://github.com/hrayn3/dicta.git
 cd dicta
-./scripts/make-app.sh
-open dist/Dicta.app
+./scripts/make-app.sh --install
 ```
 
-Move `dist/Dicta.app` to `/Applications` if you want to keep it installed.
-The speech model downloads on first launch. If FluidAudio has already cached
-the model on the build Mac, the build script bundles it into the app for a
-fully offline first launch.
+That checks your setup (and tells you how to fix anything missing), builds
+the app, installs it to `/Applications` and launches it. Dicta has no window:
+look for its icon in the menu bar, and allow Accessibility when macOS asks.
+
+**Or let a coding agent do it.** Paste this into Claude Code, Codex or
+similar:
+
+> Install Dicta from https://github.com/hrayn3/dicta by following its
+> INSTALL.md. Stop and ask me for any step marked (human).
+
+See [INSTALL.md](INSTALL.md) for the full steps and troubleshooting.
 
 ## Use
 
@@ -63,12 +66,14 @@ Case-insensitive, whole-word, applied after transcription and before pasting.
 ## Build
 
 ```
-./scripts/make-app.sh        # → dist/Dicta.app
+./scripts/make-app.sh            # → dist/Dicta.app
+./scripts/make-app.sh --install  # also copy to /Applications and launch
 ```
 
-Requires Xcode 26 / Swift 6 and an Apple Silicon Mac (macOS 14+). The bundle
-is ad-hoc signed: on a Mac other than the build machine, first launch is
-right-click → Open.
+The bundle is signed with `$CODESIGN_ID` if set, else a local "Dicta Dev
+Signing" certificate if you have one, else ad-hoc. With ad-hoc signing,
+macOS treats each build as a new app, so the script clears the old
+Accessibility grant and you allow it again after each rebuild.
 
 ## License
 
