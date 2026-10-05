@@ -3,6 +3,10 @@ import AppKit
 import KeyboardShortcuts
 import ServiceManagement
 import SwiftUI
+import os
+
+/// Per-take diagnostics: `log stream --predicate 'subsystem == "com.hughrayner.dicta"'`.
+let takeLog = Logger(subsystem: "com.hughrayner.dicta", category: "take")
 
 extension KeyboardShortcuts.Name {
     /// Default: ⌃⌥Space — tappable with one hand.
@@ -42,6 +46,14 @@ final class AppState: ObservableObject {
             updateFnMonitor()
         }
     }
+    /// Debug aid: keep the most recent take as a WAV so a bad transcript can
+    /// be checked against what the mic actually heard. Off by default.
+    @Published var keepLastRecording = UserDefaults.standard.bool(forKey: "keepLastRecording") {
+        didSet {
+            UserDefaults.standard.set(keepLastRecording, forKey: "keepLastRecording")
+            if !keepLastRecording { try? FileManager.default.removeItem(at: Transcriber.lastTakeURL) }
+        }
+    }
     @Published var launchAtLogin = SMAppService.mainApp.status == .enabled {
         didSet { updateLaunchAtLogin() }
     }
@@ -53,6 +65,7 @@ final class AppState: ObservableObject {
     /// Auto-stop after this much sustained silence while recording.
     private let silenceLimit: TimeInterval = 300
     private var silenceTimer: Timer?
+    private var recordingStartedAt = Date()
     private lazy var escInterceptor = EscKeyInterceptor { [weak self] in
         self?.cancelRecording()
     }
@@ -122,7 +135,7 @@ final class AppState: ObservableObject {
         // A failed take shouldn't need a relaunch: the next tap retries.
         // (A failed model load can't be retried this way.)
         case .failed where transcriber.isReady: startRecording()
-        case .recording: finishRecording()
+        case .recording: finishRecording(reason: "tap")
         // .starting: ignore repeat taps until the mic is live, or a
         // bounced key would start a second recording.
         default: break
@@ -140,7 +153,7 @@ final class AppState: ObservableObject {
                 try transcriber.beginSession()
                 try recorder.start(
                     onBuffer: { [transcriber] buffer in transcriber.feed(buffer) },
-                    onInterrupted: { [weak self] in self?.finishRecording() }
+                    onInterrupted: { [weak self] in self?.finishRecording(reason: "input lost") }
                 )
                 // Paused while the mic was starting up.
                 guard enabled, phase == .starting else {
@@ -150,6 +163,7 @@ final class AppState: ObservableObject {
                     return
                 }
                 phase = .recording
+                recordingStartedAt = Date()
                 escInterceptor.start()
                 startSilenceWatchdog()
             } catch {
@@ -159,16 +173,30 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func finishRecording() {
+    private func finishRecording(reason: String) {
         guard phase == .recording else { return }
+        let stopAt = Date()
+        let voiceAgeAtStop = stopAt.timeIntervalSince(recorder.lastVoiceActivity)
         escInterceptor.stop()
         stopSilenceWatchdog()
         phase = .transcribing
         Task {
             await recorder.waitForPause()
             recorder.stop()
+            let stats = recorder.captureStats
+            let lastBufferAge = stats.lastBufferAt.map { stopAt.timeIntervalSince($0) } ?? -1
+            takeLog.notice(
+                """
+                take stopped by \(reason, privacy: .public): wall \(stopAt.timeIntervalSince(self.recordingStartedAt), format: .fixed(precision: 2))s, \
+                audio \(stats.seconds, format: .fixed(precision: 2))s in \(stats.buffers) buffers @ \(Int(stats.sampleRate)) Hz, \
+                last buffer \(lastBufferAge, format: .fixed(precision: 2))s before stop, \
+                last voice \(voiceAgeAtStop, format: .fixed(precision: 2))s before stop, \
+                waited \(Date().timeIntervalSince(stopAt), format: .fixed(precision: 2))s, restarts \(stats.restarts)
+                """)
             do {
-                var text = try await transcriber.endSession()
+                var text = try await transcriber.endSession(
+                    saveTo: keepLastRecording ? Transcriber.lastTakeURL : nil)
+                takeLog.notice("transcribed \(text.split(separator: " ").count) words")
                 text = Replacements.apply(to: text)
                 text = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
@@ -202,7 +230,7 @@ final class AppState: ObservableObject {
             Task { @MainActor in
                 guard let self, self.phase == .recording else { return }
                 if Date().timeIntervalSince(self.recorder.lastVoiceActivity) > self.silenceLimit {
-                    self.finishRecording()
+                    self.finishRecording(reason: "silence")
                 }
             }
         }

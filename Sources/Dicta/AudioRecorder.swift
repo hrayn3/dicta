@@ -17,11 +17,15 @@ final class AudioRecorder {
     private var onBuffer: ((AVAudioPCMBuffer) -> Void)?
     private var onInterrupted: (() -> Void)?
     private let lastVoice = OSAllocatedUnfairLock(initialState: Date())
+    private let stats = OSAllocatedUnfairLock(initialState: CaptureStats())
 
     /// RMS above this counts as voice activity (~-40 dBFS).
     private nonisolated static let voiceThreshold: Float = 0.01
 
     var lastVoiceActivity: Date { lastVoice.withLock { $0 } }
+
+    /// What the tap actually delivered for the current (or last) take.
+    var captureStats: CaptureStats { stats.withLock { $0 } }
 
     func start(
         onBuffer: @escaping (AVAudioPCMBuffer) -> Void,
@@ -33,6 +37,7 @@ final class AudioRecorder {
         self.onBuffer = onBuffer
         self.onInterrupted = onInterrupted
         lastVoice.withLock { $0 = Date() }
+        stats.withLock { $0 = CaptureStats() }
 
         do {
             try run(engine)
@@ -86,10 +91,12 @@ final class AudioRecorder {
         }
         guard let onBuffer else { return }
         let lastVoice = self.lastVoice
+        let stats = self.stats
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
             if Self.rms(of: buffer) > Self.voiceThreshold {
                 lastVoice.withLock { $0 = Date() }
             }
+            stats.withLock { $0.record(buffer) }
             onBuffer(buffer)
         }
         engine.prepare()
@@ -103,11 +110,14 @@ final class AudioRecorder {
 
     private func restartAfterConfigurationChange() {
         guard let engine else { return }
+        takeLog.notice("audio configuration changed mid-take; restarting input")
+        stats.withLock { $0.restarts += 1 }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         do {
             try run(engine)
         } catch {
+            takeLog.error("input restart failed: \(error.localizedDescription, privacy: .public)")
             let onInterrupted = self.onInterrupted
             stop()
             onInterrupted?()
@@ -120,6 +130,24 @@ final class AudioRecorder {
         var sum: Float = 0
         for i in 0..<n { sum += data[i] * data[i] }
         return (sum / Float(n)).squareRoot()
+    }
+}
+
+struct CaptureStats {
+    var buffers = 0
+    var seconds: Double = 0
+    var sampleRate: Double = 0
+    var firstBufferAt: Date?
+    var lastBufferAt: Date?
+    var restarts = 0
+
+    mutating func record(_ buffer: AVAudioPCMBuffer) {
+        let now = Date()
+        if firstBufferAt == nil { firstBufferAt = now }
+        lastBufferAt = now
+        buffers += 1
+        sampleRate = buffer.format.sampleRate
+        if sampleRate > 0 { seconds += Double(buffer.frameLength) / sampleRate }
     }
 }
 
