@@ -161,11 +161,12 @@ final class AppState: ObservableObject {
 
     private func finishRecording() {
         guard phase == .recording else { return }
-        recorder.stop()
         escInterceptor.stop()
         stopSilenceWatchdog()
         phase = .transcribing
         Task {
+            await recorder.waitForPause()
+            recorder.stop()
             do {
                 var text = try await transcriber.endSession()
                 text = Replacements.apply(to: text)

@@ -48,6 +48,24 @@ final class AudioRecorder {
         }
     }
 
+    /// Keeps recording briefly after the stop tap. People often tap while
+    /// still saying their last words, so wait for a short pause in speech
+    /// (or give up after `maximum`) before the caller stops the engine.
+    /// `minimum` lets the buffer in flight at the tap arrive.
+    func waitForPause(
+        minimum: TimeInterval = 0.15,
+        quiet: TimeInterval = 0.35,
+        maximum: TimeInterval = 1.5
+    ) async {
+        let started = Date()
+        while engine != nil {
+            let elapsed = Date().timeIntervalSince(started)
+            if elapsed >= maximum { return }
+            if elapsed >= minimum, Date().timeIntervalSince(lastVoiceActivity) >= quiet { return }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     func stop() {
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
         configObserver = nil
