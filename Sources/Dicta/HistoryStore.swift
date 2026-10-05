@@ -24,11 +24,23 @@ final class HistoryStore {
 
     func load() -> [HistoryEntry] {
         guard let data = try? String(contentsOf: fileURL, encoding: .utf8) else { return [] }
-        let entries = data.split(separator: "\n").compactMap { line -> HistoryEntry? in
+        let lines = data.split(separator: "\n")
+        let entries = lines.compactMap { line -> HistoryEntry? in
             guard let lineData = line.data(using: .utf8) else { return nil }
             return try? decoder.decode(HistoryEntry.self, from: lineData)
         }
-        return Array(entries.suffix(Self.maxEntries).reversed())
+        let kept = Array(entries.suffix(Self.maxEntries))
+        // Appends never trim, so rewrite the file down to what is kept.
+        if lines.count > kept.count { rewrite(kept) }
+        return kept.reversed()
+    }
+
+    private func rewrite(_ entries: [HistoryEntry]) {
+        let lines = entries.compactMap { entry -> String? in
+            guard let data = try? encoder.encode(entry) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+        try? (lines.joined(separator: "\n") + "\n").write(to: fileURL, atomically: true, encoding: .utf8)
     }
 
     @discardableResult
