@@ -181,7 +181,7 @@ final class AppState: ObservableObject {
         stopSilenceWatchdog()
         phase = .transcribing
         Task {
-            await recorder.waitForPause()
+            await recorder.recordTail()
             recorder.stop()
             let stats = recorder.captureStats
             let lastBufferAge = stats.lastBufferAt.map { stopAt.timeIntervalSince($0) } ?? -1
