@@ -19,6 +19,7 @@ final class AppState: ObservableObject {
     enum Phase: Equatable {
         case loadingModel(String)
         case idle
+        case starting
         case recording
         case transcribing
         case failed(String)
@@ -52,7 +53,9 @@ final class AppState: ObservableObject {
     /// Auto-stop after this much sustained silence while recording.
     private let silenceLimit: TimeInterval = 300
     private var silenceTimer: Timer?
-    private var escMonitor: Any?
+    private lazy var escInterceptor = EscKeyInterceptor { [weak self] in
+        self?.cancelRecording()
+    }
     private lazy var fnMonitor = FnKeyMonitor { [weak self] in
         self?.toggleDictation()
     }
@@ -62,7 +65,7 @@ final class AppState: ObservableObject {
         switch phase {
         case .loadingModel: return MenuBarIcon.loading
         case .idle: return MenuBarIcon.idle
-        case .recording: return MenuBarIcon.recording
+        case .starting, .recording: return MenuBarIcon.recording
         case .transcribing: return MenuBarIcon.transcribing
         case .failed: return MenuBarIcon.failed
         }
@@ -73,6 +76,7 @@ final class AppState: ObservableObject {
         switch phase {
         case .loadingModel(let detail): return detail
         case .idle: return "Ready — tap shortcut to dictate"
+        case .starting: return "Starting microphone…"
         case .recording: return "Recording… tap shortcut to finish, Esc to cancel"
         case .transcribing: return "Transcribing…"
         case .failed(let message): return message
@@ -115,28 +119,42 @@ final class AppState: ObservableObject {
         guard enabled else { return }
         switch phase {
         case .idle: startRecording()
+        // A failed take shouldn't need a relaunch: the next tap retries.
+        // (A failed model load can't be retried this way.)
+        case .failed where transcriber.isReady: startRecording()
         case .recording: finishRecording()
+        // .starting: ignore repeat taps until the mic is live, or a
+        // bounced key would start a second recording.
         default: break
         }
     }
 
     private func startRecording() {
+        phase = .starting
         Task {
             do {
                 guard await requestMicAccess() else {
                     phase = .failed("Microphone access denied — enable in System Settings → Privacy")
                     return
                 }
-                try await transcriber.beginSession()
-                try recorder.start { [weak self] buffer in
-                    self?.transcriber.feed(buffer)
+                try transcriber.beginSession()
+                try recorder.start(
+                    onBuffer: { [transcriber] buffer in transcriber.feed(buffer) },
+                    onInterrupted: { [weak self] in self?.finishRecording() }
+                )
+                // Paused while the mic was starting up.
+                guard enabled, phase == .starting else {
+                    recorder.stop()
+                    transcriber.discardSession()
+                    if phase == .starting { phase = .idle }
+                    return
                 }
                 phase = .recording
-                installEscMonitor()
+                escInterceptor.start()
                 startSilenceWatchdog()
             } catch {
+                transcriber.discardSession()
                 phase = .failed("Could not start recording: \(error.localizedDescription)")
-                await transcriber.discardSession()
             }
         }
     }
@@ -144,7 +162,7 @@ final class AppState: ObservableObject {
     private func finishRecording() {
         guard phase == .recording else { return }
         recorder.stop()
-        removeEscMonitor()
+        escInterceptor.stop()
         stopSilenceWatchdog()
         phase = .transcribing
         Task {
@@ -170,27 +188,10 @@ final class AppState: ObservableObject {
     func cancelRecording() {
         guard phase == .recording else { return }
         recorder.stop()
-        removeEscMonitor()
+        escInterceptor.stop()
         stopSilenceWatchdog()
-        Task {
-            await transcriber.discardSession()
-            phase = .idle
-        }
-    }
-
-    // MARK: - Esc to cancel
-
-    private func installEscMonitor() {
-        escMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 {  // Esc
-                Task { @MainActor in self?.cancelRecording() }
-            }
-        }
-    }
-
-    private func removeEscMonitor() {
-        if let escMonitor { NSEvent.removeMonitor(escMonitor) }
-        escMonitor = nil
+        transcriber.discardSession()
+        phase = .idle
     }
 
     // MARK: - Silence watchdog

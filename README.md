@@ -32,8 +32,10 @@ fully offline first launch.
 
 - **Tap ⌃⌥Space** (configurable) to start recording; the menu bar icon becomes
   a record dot. Speak. Tap again to finish — text appears at your cursor.
-  Transcription runs *while* you speak, so the result is near-instant.
-- **Esc** while recording cancels it (nothing is pasted).
+  The whole take is transcribed in one pass when you stop (about 0.2 s for
+  30 s of speech), and your previous clipboard comes back afterwards.
+- **Esc** while recording cancels it (nothing is pasted). The Esc press is
+  not passed on to the app you're typing in.
 - The menu bar dropdown has your recent transcripts — click one to copy it.
 - If a recording is left running with no speech for 5 minutes it stops itself.
 

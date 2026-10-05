@@ -19,7 +19,7 @@ enum SelfTest {
             print("selftest: loading models…")
             try await transcriber.prepare { _ in }
 
-            try await transcriber.beginSession()
+            try transcriber.beginSession()
             print("selftest: session started")
 
             let audioFile = try AVAudioFile(forReading: URL(fileURLWithPath: file))
@@ -34,7 +34,9 @@ enum SelfTest {
             }
             print("selftest: audio fed, finishing")
 
+            let started = Date()
             let raw = try await transcriber.endSession()
+            print(String(format: "selftest: transcribed in %.0f ms", Date().timeIntervalSince(started) * 1000))
             let corrected = Replacements.apply(to: raw)
             print("selftest raw:       \(raw)")
             print("selftest corrected: \(corrected)")
