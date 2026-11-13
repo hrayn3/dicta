@@ -63,7 +63,13 @@ final class Transcriber {
         }
     }
 
-    func endSession() async throws -> String {
+    /// Where "Keep last recording" writes the most recent take.
+    static var lastTakeURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Dicta/last-take.wav")
+    }
+
+    func endSession(saveTo saveURL: URL? = nil) async throws -> String {
         guard let asr else { throw TranscriberError.modelsNotLoaded }
         let session = audio.withLock { session in
             defer { session = SessionAudio() }
@@ -73,12 +79,36 @@ final class Transcriber {
         if !session.pending.isEmpty {
             samples += try converter.resample(session.pending, from: session.pendingRate)
         }
+        if let saveURL { Self.writeWAV(samples, to: saveURL) }
         // Shorter than the model's minimum: a mis-tap, not speech.
         guard samples.count >= ASRConstants.minimumRequiredSamples(forSampleRate: 16_000) else {
             return ""
         }
         var state = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
         return try await asr.transcribe(samples, decoderState: &state).text
+    }
+
+    /// 16 kHz mono 16-bit WAV — exactly what the model was given.
+    private static func writeWAV(_ samples: [Float], to url: URL) {
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000, AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false,
+        ]
+        guard
+            let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1),
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(max(samples.count, 1)))
+        else { return }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { src in
+            buffer.floatChannelData![0].update(from: src.baseAddress!, count: samples.count)
+        }
+        try? FileManager.default.removeItem(at: url)
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: settings)
+            try file.write(from: buffer)
+        } catch {
+            takeLog.error("could not save last take: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     func discardSession() {

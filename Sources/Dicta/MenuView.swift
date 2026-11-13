@@ -58,6 +58,8 @@ struct MenuView: View {
                 .toggleStyle(.checkbox)
             Toggle("Launch at login", isOn: $state.launchAtLogin)
                 .toggleStyle(.checkbox)
+            Toggle("Keep last recording (debug)", isOn: $state.keepLastRecording)
+                .toggleStyle(.checkbox)
 
             Divider()
 
